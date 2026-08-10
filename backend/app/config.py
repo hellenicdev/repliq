@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     # Groq (LLM phrase segmentation)
     groq_api_key: str = ""
-    groq_model: str = "openai/gpt-oss-120b"
+    groq_model: str = "llama-3.1-8b-instant"
 
     # FFmpeg
     ffmpeg_path: str = ""

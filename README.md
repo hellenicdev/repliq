@@ -147,7 +147,7 @@ Expected: clips **"We need to leave."** + **"Right now."** are extracted and con
 | `TURNSTILE_SECRET_KEY` | your Cloudflare secret key |
 | `TURNSTILE_ENFORCED` | `true` |
 | `GROQ_API_KEY` | your Groq key |
-| `GROQ_MODEL` | `openai/gpt-oss-120b` |
+| `GROQ_MODEL` | `llama-3.1-8b-instant` |
 | `CORS_ORIGINS` | `https://hellenicdev.eu,http://hellenicdev.eu` |
 | `FFMPEG_PATH` | `/usr/bin/ffmpeg` |
 | `MEDIA_ROOT` | `/tmp/media` |

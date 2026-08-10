@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Environment files (never commit credentials)
+.env
+.env.local
+.env.*.local
+
+# Media artifacts
+backend/media/source/
+backend/media/clips/
+backend/media/output/
+backend/media/*.mp4
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

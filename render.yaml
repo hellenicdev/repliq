@@ -1,0 +1,40 @@
+# Render blueprint: deploys the FastAPI backend on a free web service.
+# Frontend is hosted separately on GitHub Pages (frontend/ has base '/repliq/').
+#
+# Usage: Render Dashboard -> New -> Blueprint -> point at this repo, or
+#        `render blueprint launch` with the Render CLI.
+
+services:
+  - type: web
+    name: repliq-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: apt-get update && apt-get install -y ffmpeg && pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: MONGODB_URI
+        sync: false # set in Render dashboard
+      - key: MONGODB_DATABASE
+        value: dialogue_video
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: TURNSTILE_ENFORCED
+        value: "true"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: CORS_ORIGINS
+        value: "https://<your-user>.github.io"
+      - key: MEDIA_ROOT
+        value: /tmp/media
+      - key: STORAGE_BACKEND
+        value: local
+      - key: FFMPEG_PATH
+        value: /usr/bin/ffmpeg
+      - key: MAX_CLIPS
+        value: "12"
+      - key: MAX_TOTAL_DURATION
+        value: "30.0"

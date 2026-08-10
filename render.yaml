@@ -1,17 +1,14 @@
-# Render blueprint: deploys the FastAPI backend on a free web service.
-# Frontend is hosted separately on GitHub Pages (frontend/ has base '/repliq/').
-#
-# Usage: Render Dashboard -> New -> Blueprint -> point at this repo, or
-#        `render blueprint launch` with the Render CLI.
+# Render blueprint: deploys the FastAPI backend as a Docker web service.
+# FFmpeg is installed inside the image (backend/Dockerfile).
+# Frontend is hosted on GitHub Pages at https://hellenicdev.eu/repliq/
 
 services:
   - type: web
     name: repliq-backend
-    runtime: python
+    runtime: docker
     plan: free
-    rootDir: backend
-    buildCommand: apt-get update && apt-get install -y ffmpeg && pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    dockerfilePath: ./backend/Dockerfile
+    dockerContextPath: ./backend
     healthCheckPath: /api/health
     envVars:
       - key: MONGODB_URI

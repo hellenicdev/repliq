@@ -134,7 +134,7 @@ Expected: clips **"We need to leave."** + **"Right now."** are extracted and con
 
 ## Deployment
 
-- **Backend**: Render web service (free tier). Push this repo → Render Dashboard → New → Blueprint → pick `repliq` (uses `render.yaml`). Fill in the secret env vars in the dashboard (see below). Note: Render free instances have an ephemeral filesystem — cached films and output MP4s are lost on restart; storage moves to Cloudflare R2 in the next phase.
+- **Backend**: Render web service (free tier, Docker runtime — FFmpeg baked into the image). Push this repo → Render Dashboard → New → Blueprint → pick `repliq` (uses `render.yaml`). Fill in the secret env vars in the dashboard (see below). Note: Render free instances have an ephemeral filesystem — cached films and output MP4s are lost on restart; storage moves to Cloudflare R2 in the next phase.
 - **Frontend**: GitHub Pages — already deployed at https://hellenicdev.eu/repliq/ (push `frontend/dist` to the `gh-pages` branch).
 - **Database**: MongoDB Atlas M0 free cluster (vector search works on M0 for Phase 4).
 

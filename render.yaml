@@ -27,7 +27,7 @@ services:
       - key: GROQ_MODEL
         value: llama-3.3-70b-versatile
       - key: CORS_ORIGINS
-        value: "https://<your-user>.github.io"
+        value: "https://hellenicdev.eu,http://hellenicdev.eu"
       - key: MEDIA_ROOT
         value: /tmp/media
       - key: STORAGE_BACKEND

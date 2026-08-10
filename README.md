@@ -134,9 +134,25 @@ Expected: clips **"We need to leave."** + **"Right now."** are extracted and con
 
 ## Deployment
 
-- **Backend**: Render web service (free tier: 512 MB RAM, spins down after 15 min idle). Set all `backend/.env` values as Render environment variables. Note: Render free instances have an ephemeral filesystem — output MP4s are lost on restart. Phase 2 moves storage to Cloudflare R2.
-- **Frontend**: GitHub Pages — build with `npm run build`, deploy `dist/` to the `gh-pages` branch (`base` is already `/repliq/`).
+- **Backend**: Render web service (free tier). Push this repo → Render Dashboard → New → Blueprint → pick `repliq` (uses `render.yaml`). Fill in the secret env vars in the dashboard (see below). Note: Render free instances have an ephemeral filesystem — cached films and output MP4s are lost on restart; storage moves to Cloudflare R2 in the next phase.
+- **Frontend**: GitHub Pages — already deployed at https://hellenicdev.eu/repliq/ (push `frontend/dist` to the `gh-pages` branch).
 - **Database**: MongoDB Atlas M0 free cluster (vector search works on M0 for Phase 4).
+
+### Render environment variables to set in the dashboard
+
+| Variable | Value |
+|---|---|
+| `MONGODB_URI` | your Atlas connection string |
+| `MONGODB_DATABASE` | `dialogue_video` |
+| `TURNSTILE_SECRET_KEY` | your Cloudflare secret key |
+| `TURNSTILE_ENFORCED` | `true` |
+| `GROQ_API_KEY` | your Groq key |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` |
+| `CORS_ORIGINS` | `https://hellenicdev.eu,http://hellenicdev.eu` |
+| `FFMPEG_PATH` | `/usr/bin/ffmpeg` |
+| `MEDIA_ROOT` | `/tmp/media` |
+| `MAX_CLIPS` | `12` |
+| `MAX_TOTAL_DURATION` | `30.0` |
 
 ## Next phases
 

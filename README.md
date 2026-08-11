@@ -153,6 +153,7 @@ Expected: clips **"We need to leave."** + **"Right now."** are extracted and con
 | `MEDIA_ROOT` | `/tmp/media` |
 | `MAX_CLIPS` | `12` |
 | `MAX_TOTAL_DURATION` | `30.0` |
+| `CACHE_TTL_DAYS` | `2` (source films are fetched on demand and pruned after 2 days) |
 | `S3_ENDPOINT` | `https://s3.eu-central-003.backblazeb2.com` |
 | `S3_REGION` | `eu-central-003` |
 | `S3_ACCESS_KEY_ID` | your B2 key ID |

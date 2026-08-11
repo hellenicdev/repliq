@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -7,8 +8,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .database import close_db, connect_db, create_indexes
 from .routes import health, jobs, videos
+from .services import storage
 
 logging.basicConfig(level=logging.INFO)
+
+PRUNE_INTERVAL_SECONDS = 6 * 3600
+
+
+async def _cache_prune_loop() -> None:
+    while True:
+        try:
+            await asyncio.to_thread(storage.prune_stale_cache)
+        except Exception:  # noqa: BLE001 - pruning must never take the service down
+            logging.exception("cache prune failed")
+        await asyncio.sleep(PRUNE_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
@@ -19,7 +32,13 @@ async def lifespan(app: FastAPI):
         logging.info("MongoDB connected")
     except Exception as exc:  # noqa: BLE001 - server must still boot so /api/health reports the problem
         logging.warning("MongoDB unavailable at startup: %s", exc)
+    try:
+        await asyncio.to_thread(storage.prune_stale_cache)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("cache prune at startup failed: %s", exc)
+    task = asyncio.create_task(_cache_prune_loop())
     yield
+    task.cancel()
     await close_db()
 
 

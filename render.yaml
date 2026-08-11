@@ -29,6 +29,8 @@ services:
         value: /tmp/media
       - key: STORAGE_BACKEND
         value: local
+      - key: CACHE_TTL_DAYS
+        value: "2"
       - key: S3_ENDPOINT
         sync: false # Backblaze B2 S3 endpoint, e.g. https://s3.us-west-004.backblazeb2.com
       - key: S3_REGION

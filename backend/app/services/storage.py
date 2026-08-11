@@ -135,3 +135,31 @@ def get_storage_service() -> StorageService:
     if settings.storage_backend == "local":
         return LocalStorageService()
     raise ValueError(f"unsupported STORAGE_BACKEND: {settings.storage_backend}")
+
+
+def prune_stale_cache() -> None:
+    """Delete cached files older than their TTL so the disk stays bounded.
+
+    Source films are re-fetched on demand (archive.org, or the S3 mirror
+    while it holds a copy), which is the intended fetch-and-cache-for-a-
+    few-days behavior.
+    """
+    import time
+
+    now = time.time()
+    ttl_source = settings.cache_ttl_days * 86400
+    ttl_output = 7 * 86400  # finished MP4s live in object storage; keep local copies a bit longer
+    for directory, ttl in (
+        (settings.source_dir, ttl_source),
+        (settings.clips_dir, ttl_source),
+        (settings.output_dir, ttl_output),
+    ):
+        if not directory.is_dir():
+            continue
+        for f in directory.glob("*"):
+            try:
+                if now - f.stat().st_mtime > ttl:
+                    f.unlink(missing_ok=True)
+                    logger.info("pruned stale cache file %s", f)
+            except OSError:
+                continue

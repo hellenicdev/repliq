@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # Media / storage
     media_root: Path = Path("media")
     storage_backend: str = "local"
+    cache_ttl_days: int = 2
 
     # S3-compatible object storage (Backblaze B2 / Cloudflare R2)
     s3_endpoint: str = ""

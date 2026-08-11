@@ -134,8 +134,8 @@ Expected: clips **"We need to leave."** + **"Right now."** are extracted and con
 
 ## Deployment
 
-- **Backend**: Render web service (free tier, Docker runtime — FFmpeg baked into the image). Push this repo → Render Dashboard → New → Blueprint → pick `repliq` (uses `render.yaml`). Fill in the secret env vars in the dashboard (see below). Note: Render free instances have an ephemeral filesystem — cached films and output MP4s are lost on restart; storage moves to Cloudflare R2 in the next phase.
-- **Frontend**: GitHub Pages — already deployed at https://hellenicdev.eu/repliq/ (push `frontend/dist` to the `gh-pages` branch).
+- **Backend**: Render web service (free tier, Docker runtime — FFmpeg baked into the image) at https://repliq-83cx.onrender.com. Push this repo → Render Dashboard → New → Web Service → repo `hellenicdev/repliq`, Root Directory `backend`, Docker runtime. Fill in the env vars below. Render free instances have an ephemeral filesystem, so fetched films and output MP4s are mirrored to Backblaze B2 (S3-compatible, 10 GB free tier) — swap `S3_ENDPOINT`/`S3_REGION`/keys to switch to Cloudflare R2 with zero code changes.
+- **Frontend**: GitHub Pages — deployed at https://hellenicdev.eu/repliq/ (push `frontend/dist` to the `gh-pages` branch). The build reads `VITE_API_URL` from `frontend/.env` at build time.
 - **Database**: MongoDB Atlas M0 free cluster (vector search works on M0 for Phase 4).
 
 ### Render environment variables to set in the dashboard
@@ -153,12 +153,17 @@ Expected: clips **"We need to leave."** + **"Right now."** are extracted and con
 | `MEDIA_ROOT` | `/tmp/media` |
 | `MAX_CLIPS` | `12` |
 | `MAX_TOTAL_DURATION` | `30.0` |
+| `S3_ENDPOINT` | `https://s3.eu-central-003.backblazeb2.com` |
+| `S3_REGION` | `eu-central-003` |
+| `S3_ACCESS_KEY_ID` | your B2 key ID |
+| `S3_SECRET_ACCESS_KEY` | your B2 application key |
+| `S3_BUCKET` | `repliq-media-b2` |
 
 ## Next phases
 
-1. faster-whisper transcription (word-level timestamps)
+1. faster-whisper transcription (word-level timestamps — removes the proportional-timing approximation in clip trimming)
 2. Phrase segmentation (LLM + database-aware)
 3. Semantic search (sentence-transformers + Atlas Vector Search)
 4. Ranking (semantic/lexical/duration/quality/context)
 5. Better cut boundaries + source attribution in output video
-6. R2 storage + background worker
+6. Background worker + re-verify R2 vs B2

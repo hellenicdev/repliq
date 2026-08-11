@@ -29,6 +29,16 @@ services:
         value: /tmp/media
       - key: STORAGE_BACKEND
         value: local
+      - key: S3_ENDPOINT
+        sync: false # Backblaze B2 S3 endpoint, e.g. https://s3.us-west-004.backblazeb2.com
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_BUCKET
+        value: repliq-media-b2
       - key: FFMPEG_PATH
         value: /usr/bin/ffmpeg
       - key: MAX_CLIPS

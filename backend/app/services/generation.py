@@ -18,6 +18,7 @@ from ..models.video import Video
 from ..repositories import jobs as jobs_repo
 from ..repositories import videos as videos_repo
 from . import video as ffmpeg
+from . import s3 as s3_store
 from .search import NoClipsFound, get_search_service
 from .segmentation import segment_sentence
 from .storage import get_storage_service
@@ -103,6 +104,13 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
         output_path = storage.output_path(job.id)
         await _set_message(db, job.id, "Concatenating clips…")
         await ffmpeg.concat_clips(clip_paths, output_path)
+
+        # Mirror the finished video to object storage so it survives redeploys.
+        if s3_store.available():
+            try:
+                await s3_store.upload_file(f"output/{job.id}.mp4", output_path)
+            except Exception as exc:  # noqa: BLE001 - cache is best-effort
+                logger.warning("s3 upload failed for job %s: %s", job.id, exc)
 
         await jobs_repo.update_job(
             db,

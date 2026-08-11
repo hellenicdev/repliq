@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     media_root: Path = Path("media")
     storage_backend: str = "local"
 
+    # S3-compatible object storage (Backblaze B2 / Cloudflare R2)
+    s3_endpoint: str = ""
+    s3_region: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_bucket: str = ""
+
     # CORS
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 

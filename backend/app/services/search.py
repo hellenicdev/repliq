@@ -46,13 +46,76 @@ class SearchService(ABC):
 class LexicalSearchService(SearchService):
     """Token-overlap scoring with an exact-phrase bonus.
 
-    Scores a dialogue segment by the fraction of query tokens it contains,
-    plus a bonus when the normalized segment text contains the normalized
-    query as a phrase. Clips are selected greedily so that chosen segments
-    never overlap in time within the same video.
+    Each phrase is matched against dialogue segments that contain all of its
+    words in order, and the clip times are *trimmed* to the words' span
+    (subtitle durations are split proportionally by word count), so the
+    extracted clip only plays the requested words even when the source
+    segment contains extra dialogue. Clips are selected greedily so chosen
+    segments never overlap in time within the same video, and clips may come
+    from different films.
     """
 
     PHRASE_BONUS = 0.35
+    MIN_CLIP_SECONDS = 0.5
+
+    @staticmethod
+    def _word_span(seg_tokens: list[str], query_tokens: list[str]) -> tuple[int, int] | None:
+        """Index range (first, last) of the first contiguous occurrence of
+        query_tokens inside seg_tokens, or None if absent. Contiguity is what
+        makes the trimmed clip contain exactly the requested words — nothing
+        in between, nothing around it."""
+        n, m = len(seg_tokens), len(query_tokens)
+        for i in range(n - m + 1):
+            if seg_tokens[i : i + m] == query_tokens:
+                return (i, i + m - 1)
+        return None
+
+    async def _phrase_matches(self, db: AsyncIOMotorDatabase, phrase: str, limit: int) -> list[ClipMatch]:
+        query_tokens = tokenize(phrase)
+        if not query_tokens:
+            return []
+
+        segments = await dialogue_repo.list_dialogue(db)
+        videos = {v.id: v for v in await videos_repo.list_videos(db)}
+
+        matches: list[ClipMatch] = []
+        for seg in segments:
+            seg_tokens = tokenize(seg.text)
+            span = self._word_span(seg_tokens, query_tokens)
+            if span is None:
+                continue
+
+            first, last = span
+            n = len(seg_tokens)
+            dur = max(seg.endTime - seg.startTime, 0.001)
+            start = seg.startTime + (first / n) * dur
+            end = seg.startTime + ((last + 1) / n) * dur
+            if end - start < self.MIN_CLIP_SECONDS:
+                mid = (start + end) / 2
+                start = max(seg.startTime, mid - self.MIN_CLIP_SECONDS / 2)
+                end = min(seg.endTime, mid + self.MIN_CLIP_SECONDS / 2)
+
+            extra_words = n - len(query_tokens)
+            score = 1.0 - 0.02 * extra_words
+            if query_tokens == seg_tokens:
+                score += self.PHRASE_BONUS
+
+            video = videos.get(seg.videoId)
+            matches.append(
+                ClipMatch(
+                    videoId=seg.videoId,
+                    videoTitle=video.title if video else "Unknown",
+                    character=seg.character,
+                    text=seg.text,
+                    startTime=round(start, 3),
+                    endTime=round(end, 3),
+                    score=round(score, 4),
+                    order=first,
+                )
+            )
+
+        matches.sort(key=lambda m: -m.score)
+        return matches[:limit]
 
     async def search(self, db: AsyncIOMotorDatabase, query: str, limit: int) -> list[ClipMatch]:
         query_norm = normalize_text(query)
@@ -117,16 +180,14 @@ class LexicalSearchService(SearchService):
         """Search each phrase and assemble a sentence-ordered clip list.
 
         Picks the single best non-overlapping match per phrase and keeps the
-        sentence order, capping total clips and duration via settings.
+        sentence order, capping total clips and duration via settings. Clips
+        may come from different films. If no phrase matches cleanly, the
+        sentence is simply not playable — better than playing wrong words.
         """
-        all_matches = await self.search(db, " ".join(phrases), limit=max(limit * 2, 20))
-        if not all_matches:
-            return []
-
         chosen: list[ClipMatch] = []
         used_spans: dict[str, list[tuple[float, float]]] = {}
         for phrase in phrases:
-            candidates = await self.search(db, phrase, limit=5)
+            candidates = await self._phrase_matches(db, phrase, limit=5)
             best = None
             for c in candidates:
                 spans = used_spans.get(c.videoId, [])
@@ -141,9 +202,7 @@ class LexicalSearchService(SearchService):
             if len(chosen) >= limit:
                 break
 
-        if not chosen:
-            return all_matches[:limit]
-        return chosen[:limit]
+        return chosen
 
 
 def get_search_service() -> SearchService:

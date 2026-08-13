@@ -32,5 +32,6 @@ async def create_indexes() -> None:
     await db.videos.create_index("source")
     await db.dialogue.create_index("videoId")
     await db.dialogue.create_index("text")
+    await db.dialogue.create_index("startTime")
     await db.jobs.create_index("status")
     await db.jobs.create_index([("createdAt", -1)])

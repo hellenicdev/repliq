@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import TurnstileWidget, { resetTurnstile } from '../components/TurnstileWidget'
 import { ApiError, createJob, outputUrl, waitForJob } from '../services/api'
 import type { Clip, Job } from '../types'
@@ -18,20 +18,37 @@ function stepIndex(message: string | null, phase: Phase): number {
   return 0
 }
 
+function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds))
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}m ${s % 60}s`
+}
+
 export default function HomePage() {
   const [sentence, setSentence] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>('idle')
   const [job, setJob] = useState<Job | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [startedAt, setStartedAt] = useState<number | null>(null)
+  const [now, setNow] = useState<number>(Date.now())
 
   const canGenerate = sentence.trim().length >= 2 && turnstileToken !== null && phase !== 'searching'
+
+  useEffect(() => {
+    if (phase !== 'searching') return
+    setStartedAt((prev) => prev ?? Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [phase])
 
   async function handleGenerate() {
     if (!canGenerate) return
     setPhase('searching')
     setError(null)
     setJob(null)
+    setStartedAt(null)
+    setNow(Date.now())
     try {
       const { jobId } = await createJob(sentence.trim(), turnstileToken)
       const finished = await waitForJob(jobId, setJob)
@@ -51,6 +68,12 @@ export default function HomePage() {
   }
 
   const step = stepIndex(job?.message ?? null, phase)
+
+  const elapsed = startedAt ? (now - startedAt) / 1000 : 0
+  const frac = step / STEPS.length
+  const eta = phase === 'searching' && frac > 0 && elapsed > 0
+    ? formatDuration(elapsed / frac - elapsed)
+    : null
 
   return (
     <div className="stage">
@@ -89,7 +112,10 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
-            <p className="status">{job?.message ?? 'Starting…'}</p>
+            <p className="status">
+              {job?.message ?? 'Starting…'}
+              {eta && <span> · ETA {eta}</span>}
+            </p>
           </div>
         )}
 

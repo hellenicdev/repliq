@@ -31,12 +31,16 @@ class Settings(BaseSettings):
     storage_backend: str = "local"
     cache_ttl_days: int = 2
 
+    # S3-compatible object storage provider
+    s3_provider: str = "b2"  # 'b2' | 'r2' | 'custom'
+
     # S3-compatible object storage (Backblaze B2 / Cloudflare R2)
     s3_endpoint: str = ""
     s3_region: str = ""
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
     s3_bucket: str = ""
+    s3_addressing_style: str = ""  # 'path' | 'virtual' | '' (auto)
 
     # CORS
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
@@ -72,6 +76,34 @@ class Settings(BaseSettings):
     @property
     def output_dir(self) -> Path:
         return self.media_dir / "output"
+
+    @property
+    def s3_endpoint_resolved(self) -> str:
+        if self.s3_endpoint:
+            return self.s3_endpoint
+        if self.s3_provider == "r2":
+            return "https://<account_id>.r2.cloudflarestorage.com"
+        if self.s3_provider == "b2":
+            return "https://s3.eu-central-003.backblazeb2.com"
+        return ""
+
+    @property
+    def s3_region_resolved(self) -> str:
+        if self.s3_region:
+            return self.s3_region
+        if self.s3_provider == "r2":
+            return "auto"
+        if self.s3_provider == "b2":
+            return "eu-central-003"
+        return ""
+
+    @property
+    def s3_addressing_style_resolved(self) -> str:
+        if self.s3_addressing_style:
+            return self.s3_addressing_style
+        if self.s3_provider == "r2":
+            return "virtual"
+        return "path"
 
 
 settings = Settings()

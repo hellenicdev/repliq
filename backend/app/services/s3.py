@@ -38,11 +38,15 @@ def _get_client():
     if _client is None:
         _client = boto3.client(
             "s3",
-            endpoint_url=settings.s3_endpoint,
+            endpoint_url=settings.s3_endpoint_resolved,
             aws_access_key_id=settings.s3_access_key_id,
             aws_secret_access_key=settings.s3_secret_access_key,
-            region_name=settings.s3_region or "us-east-1",
-            config=Config(signature_version="s3v4", retries={"max_attempts": 4}),
+            region_name=settings.s3_region_resolved or "us-east-1",
+            config=Config(
+                signature_version="s3v4",
+                retries={"max_attempts": 4},
+                s3={"addressing_style": settings.s3_addressing_style_resolved or "auto"},
+            ),
         )
     return _client
 

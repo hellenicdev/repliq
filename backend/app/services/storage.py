@@ -54,75 +54,83 @@ class StorageService(ABC):
         raise NotImplementedError
 
 
+async def _ensure_local_file(video: Video) -> Path:
+    """Shared fetch-and-cache logic for both storage backends.
+
+    Order of preference: local cache -> S3 mirror -> archive.org origin.
+    Fetched films are mirrored to object storage once so redeploys never
+    hit archive.org again.
+    """
+    if not video.sourceUrl:
+        p = Path(video.fileUrl)
+        return p if p.is_absolute() else p.resolve()
+
+    filename = _FILENAME_SAFE.sub("_", Path(urlparse(video.sourceUrl).path).name) or "video.mp4"
+    target = settings.source_dir / filename
+    if target.is_file() and target.stat().st_size > 0:
+        return target
+
+    settings.source_dir.mkdir(parents=True, exist_ok=True)
+    part = settings.source_dir / f"{filename}.part"
+
+    remote_key = f"source/{filename}"
+
+    if s3_store.available():
+        try:
+            remote_size = await s3_store.head_object(remote_key)
+            if remote_size is not None and remote_size > 0:
+                logger.info("downloading %s from object storage", remote_key)
+                part.unlink(missing_ok=True)
+                await s3_store.download_file(remote_key, part)
+                if part.stat().st_size == remote_size:
+                    part.rename(target)
+                    return target
+                part.unlink(missing_ok=True)
+        except Exception as exc:  # noqa: BLE001 - fall back to the origin URL
+            logger.warning("s3 fetch failed for %s, falling back to origin: %s", remote_key, exc)
+
+    timeout = httpx.Timeout(60, read=300)
+    last_error: Exception | None = None
+    for attempt in range(4):
+        try:
+            existing = part.stat().st_size if part.exists() else 0
+            headers = {"Range": f"bytes={existing}-"} if existing else {}
+            mode = "ab" if existing else "wb"
+            async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+                async with client.stream("GET", video.sourceUrl, headers=headers) as resp:
+                    if resp.status_code not in (200, 206):
+                        raise StorageError(
+                            f"failed to fetch {video.sourceUrl} (HTTP {resp.status_code})"
+                        )
+                    if resp.status_code == 200 and existing:
+                        existing = 0
+                        mode = "wb"
+                    with part.open(mode) as fh:
+                        async for chunk in resp.aiter_bytes(1024 * 1024):
+                            fh.write(chunk)
+            part.rename(target)
+            if s3_store.available():
+                try:
+                    await s3_store.upload_file(remote_key, target)
+                    logger.info("mirrored %s to object storage", remote_key)
+                except Exception as exc:  # noqa: BLE001 - cache is best-effort
+                    logger.warning("s3 mirror failed for %s: %s", remote_key, exc)
+            return target
+        except Exception as exc:  # noqa: BLE001 - retry with a fresh mirror connection
+            last_error = exc
+            logger.warning("download attempt %d failed for %s: %s", attempt + 1, video.title, exc)
+            part.unlink(missing_ok=True)
+
+    raise StorageError(f"could not download {video.sourceUrl}: {last_error}")
+
+
 class LocalStorageService(StorageService):
     def resolve_source(self, file_url: str) -> Path:
         p = Path(file_url)
         return p if p.is_absolute() else p.resolve()
 
     async def ensure_local(self, video: Video) -> Path:
-        if not video.sourceUrl:
-            return self.resolve_source(video.fileUrl)
-
-        filename = _FILENAME_SAFE.sub("_", Path(urlparse(video.sourceUrl).path).name) or "video.mp4"
-        target = settings.source_dir / filename
-        if target.is_file() and target.stat().st_size > 0:
-            return target
-
-        settings.source_dir.mkdir(parents=True, exist_ok=True)
-        part = settings.source_dir / f"{filename}.part"
-
-        remote_key = f"source/{filename}"
-
-        # 1) Prefer the S3 mirror: a previous instance already fetched this film.
-        if s3_store.available():
-            try:
-                remote_size = await s3_store.head_object(remote_key)
-                if remote_size is not None and remote_size > 0:
-                    logger.info("downloading %s from object storage", remote_key)
-                    part.unlink(missing_ok=True)
-                    await s3_store.download_file(remote_key, part)
-                    if part.stat().st_size == remote_size:
-                        part.rename(target)
-                        return target
-                    part.unlink(missing_ok=True)
-            except Exception as exc:  # noqa: BLE001 - fall back to the origin URL
-                logger.warning("s3 fetch failed for %s, falling back to origin: %s", remote_key, exc)
-
-        timeout = httpx.Timeout(60, read=300)
-        last_error: Exception | None = None
-        for attempt in range(4):
-            try:
-                existing = part.stat().st_size if part.exists() else 0
-                headers = {"Range": f"bytes={existing}-"} if existing else {}
-                mode = "ab" if existing else "wb"
-                async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-                    async with client.stream("GET", video.sourceUrl, headers=headers) as resp:
-                        if resp.status_code not in (200, 206):
-                            raise StorageError(
-                                f"failed to fetch {video.sourceUrl} (HTTP {resp.status_code})"
-                            )
-                        if resp.status_code == 200 and existing:
-                            # Server ignored our Range request: start over.
-                            existing = 0
-                            mode = "wb"
-                        with part.open(mode) as fh:
-                            async for chunk in resp.aiter_bytes(1024 * 1024):
-                                fh.write(chunk)
-                part.rename(target)
-                # 2) Mirror to object storage so future deploys skip archive.org.
-                if s3_store.available():
-                    try:
-                        await s3_store.upload_file(remote_key, target)
-                        logger.info("mirrored %s to object storage", remote_key)
-                    except Exception as exc:  # noqa: BLE001 - cache is best-effort
-                        logger.warning("s3 mirror failed for %s: %s", remote_key, exc)
-                return target
-            except Exception as exc:  # noqa: BLE001 - retry with a fresh mirror connection
-                last_error = exc
-                logger.warning("download attempt %d failed for %s: %s", attempt + 1, video.title, exc)
-                part.unlink(missing_ok=True)
-
-        raise StorageError(f"could not download {video.sourceUrl}: {last_error}")
+        return await _ensure_local_file(video)
 
     def output_path(self, job_id: str) -> Path:
         return settings.output_dir / f"{job_id}.mp4"
@@ -131,9 +139,33 @@ class LocalStorageService(StorageService):
         return f"/api/jobs/{job_id}/output"
 
 
+class S3StorageService(StorageService):
+    """S3-primary storage: finished videos are served from R2 via presigned
+    URLs; source films are cached locally for FFmpeg but always re-fetchable
+    from the R2 mirror."""
+
+    def resolve_source(self, file_url: str) -> Path:
+        p = Path(file_url)
+        return p if p.is_absolute() else p.resolve()
+
+    async def ensure_local(self, video: Video) -> Path:
+        return await _ensure_local_file(video)
+
+    def output_path(self, job_id: str) -> Path:
+        return settings.output_dir / f"{job_id}.mp4"
+
+    def output_url(self, job_id: str) -> str:
+        url = s3_store.presigned_get_url(f"output/{job_id}.mp4", expires=3600)
+        if url:
+            return url
+        return f"/api/jobs/{job_id}/output"
+
+
 def get_storage_service() -> StorageService:
     if settings.storage_backend == "local":
         return LocalStorageService()
+    if settings.storage_backend == "s3":
+        return S3StorageService()
     raise ValueError(f"unsupported STORAGE_BACKEND: {settings.storage_backend}")
 
 

@@ -7,6 +7,7 @@ touching the rest of the application.
 """
 
 from abc import ABC, abstractmethod
+import re
 from dataclasses import dataclass
 from itertools import groupby
 
@@ -70,14 +71,37 @@ class LexicalSearchService(SearchService):
                 return (i, i + m - 1)
         return None
 
+    @staticmethod
+    def _all_tokens_filter(query_tokens: list[str]) -> dict | None:
+        """Mongo filter over `text` matching only segments that contain all
+        query tokens (case-insensitive). A substring superset of what Python
+        scoring can accept, so it never drops a real match."""
+        if not query_tokens:
+            return None
+        return {"$and": [{"text": {"$regex": re.escape(t), "$options": "i"}} for t in query_tokens]}
+
+    @staticmethod
+    def _any_tokens_filter(query_tokens: list[str]) -> dict | None:
+        if not query_tokens:
+            return None
+        return {"$or": [{"text": {"$regex": re.escape(t), "$options": "i"}} for t in query_tokens]}
+
     async def _phrase_matches(self, db: AsyncIOMotorDatabase, phrase: str, limit: int) -> list[ClipMatch]:
         query_tokens = tokenize(phrase)
         if not query_tokens:
             return []
 
-        segments = await dialogue_repo.list_dialogue(db)
+        segments = await dialogue_repo.list_dialogue(db, self._all_tokens_filter(query_tokens))
         videos = {v.id: v for v in await videos_repo.list_videos(db)}
+        return self._score_phrase(segments, videos, query_tokens, limit)
 
+    def _score_phrase(
+        self,
+        segments: list[Dialogue],
+        videos: dict[str, Video],
+        query_tokens: list[str],
+        limit: int,
+    ) -> list[ClipMatch]:
         matches: list[ClipMatch] = []
         for seg in segments:
             seg_tokens = tokenize(seg.text)
@@ -123,9 +147,18 @@ class LexicalSearchService(SearchService):
         if not query_tokens:
             return []
 
-        segments = await dialogue_repo.list_dialogue(db)
+        segments = await dialogue_repo.list_dialogue(db, self._any_tokens_filter(query_tokens))
         videos = {v.id: v for v in await videos_repo.list_videos(db)}
+        return self._score_query(segments, videos, query_norm, query_tokens, limit)
 
+    def _score_query(
+        self,
+        segments: list[Dialogue],
+        videos: dict[str, Video],
+        query_norm: str,
+        query_tokens: list[str],
+        limit: int,
+    ) -> list[ClipMatch]:
         matches: list[ClipMatch] = []
         for seg in segments:
             seg_tokens = tokenize(seg.text)

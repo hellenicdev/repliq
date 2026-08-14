@@ -1,0 +1,9 @@
+# Curated identifiers for the famous-films pre-pass (index_library.py --famous-file).
+# Each identifier was verified via find_srt.py to carry subtitles on archive.org.
+# Append more with: python scripts/find_srt.py --write
+the-39-steps_202407
+frankenstein.-1931
+dracula.-1931
+the.-invisible.-man.-1933
+the.-bride.-of.-frankenstein.-1935
+WhiteZombie720p1932

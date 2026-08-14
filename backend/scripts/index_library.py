@@ -17,6 +17,7 @@ sourceUrl so re-runs can never duplicate anything.
 
 Usage (from backend/):
     python scripts/index_library.py                 # full priority-fill run
+    python scripts/index_library.py --famous-file famous_films.txt --budget-segments 200000
     python scripts/index_library.py --max-items 50  # bounded test run
     python scripts/index_library.py --dry-run 50    # list candidates only
     python scripts/index_library.py --reset-checkpoint
@@ -344,6 +345,15 @@ def process_item(http: httpx.Client, db, doc: dict, done_ids: set[str], total_se
     return total_segments
 
 
+def process_famous_ids(http: httpx.Client, db, identifiers: list[str], done_ids: set[str], total_segments: int) -> int:
+    """Index a curated identifier list first (famous films land before filler)."""
+    for ident in identifiers:
+        if total_segments >= BUDGET_SEGMENTS:
+            break
+        total_segments = process_item(http, db, {"identifier": ident}, done_ids, total_segments)
+    return total_segments
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Priority-fill archive.org subtitled library indexer")
     parser.add_argument("--max-items", type=int, default=None, help="process at most N items this run")
@@ -351,6 +361,7 @@ def main() -> None:
     parser.add_argument("--since", default=None, help="YYYY-MM-DD addeddate cursor")
     parser.add_argument("--dry-run", type=int, default=0, help="only list top-N candidates, no writes")
     parser.add_argument("--reset-checkpoint", action="store_true")
+    parser.add_argument("--famous-file", default=None, help="file with curated identifiers to index first")
     args = parser.parse_args()
 
     from pymongo import MongoClient
@@ -386,6 +397,14 @@ def main() -> None:
     print("Enumerating candidates in priority order...", flush=True)
     seen: set[str] = set()
     attempts = 0
+
+    if args.famous_file:
+        famous = [ln.strip() for ln in Path(args.famous_file).read_text(encoding="utf-8").splitlines() if ln.strip()]
+        if famous:
+            print(f"Famous pre-pass: {len(famous)} curated identifiers", flush=True)
+            total_segments = process_famous_ids(http, db, famous, done_ids, total_segments)
+            seen.update(famous)
+
     for base in PASSES:
         if args.max_items and hits >= args.max_items:
             break

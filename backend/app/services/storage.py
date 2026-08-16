@@ -68,6 +68,16 @@ class StorageService(ABC):
         raise NotImplementedError
 
 
+def cached_source_path(video: Video) -> Path | None:
+    """Return the local cache path for a remote video, or None when the
+    film has not been downloaded yet."""
+    if not video.sourceUrl:
+        return None
+    filename = _FILENAME_SAFE.sub("_", Path(urlparse(video.sourceUrl).path).name) or "video.mp4"
+    p = settings.source_dir / filename
+    return p if p.is_file() and p.stat().st_size > 0 else None
+
+
 async def _ensure_local_file(video: Video) -> Path:
     """Shared fetch-and-cache logic for both storage backends.
 

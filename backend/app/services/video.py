@@ -39,7 +39,7 @@ def find_ffprobe() -> str:
     return exe
 
 
-async def probe_metadata(path: Path) -> dict:
+async def probe_metadata(path: Path | str) -> dict:
     """Return {duration, width, height, fps} for a media file."""
     exe = find_ffprobe()
     proc = await asyncio.create_subprocess_exec(
@@ -78,8 +78,13 @@ async def _run(args: list[str]) -> None:
         raise FFmpegError("ffmpeg failed:\n" + "\n".join(tail))
 
 
-async def extract_clip(input_path: Path, start: float, end: float, output_path: Path) -> Path:
-    """Extract [start, end) from the input video into a normalized clip."""
+async def extract_clip(input_path: Path | str, start: float, end: float, output_path: Path) -> Path:
+    """Extract [start, end) from the input video into a normalized clip.
+
+    The input may be a local path or a URL; ffmpeg seeks with range
+    requests over HTTP, so remote films are cut without downloading the
+    whole file.
+    """
     duration = max(0.05, end - start)
     vf = (
         f"scale={settings.output_width}:{settings.output_height}:force_original_aspect_ratio=decrease,"

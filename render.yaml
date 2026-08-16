@@ -28,19 +28,19 @@ services:
       - key: MEDIA_ROOT
         value: /tmp/media
       - key: STORAGE_BACKEND
-        value: local
+        value: s3
       - key: CACHE_TTL_DAYS
         value: "2"
-      - key: S3_ENDPOINT
-        sync: false # Backblaze B2 S3 endpoint, e.g. https://s3.us-west-004.backblazeb2.com
+      - key: S3_PROVIDER
+        value: r2 # Cloudflare R2: no egress fees. Endpoint/region/addressing resolve automatically.
       - key: S3_REGION
-        sync: false
+        value: auto
       - key: S3_ACCESS_KEY_ID
-        sync: false
+        sync: false # R2 access key (set in Render dashboard)
       - key: S3_SECRET_ACCESS_KEY
         sync: false
       - key: S3_BUCKET
-        value: repliq-media-b2
+        value: repliq
       - key: FFMPEG_PATH
         value: /usr/bin/ffmpeg
       - key: MAX_CLIPS

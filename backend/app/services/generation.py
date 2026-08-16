@@ -22,7 +22,7 @@ from . import video as ffmpeg
 from . import s3 as s3_store
 from .search import NoClipsFound, get_search_service
 from .segmentation import segment_sentence
-from .storage import get_storage_service
+from .storage import cached_source_path, get_storage_service
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +83,9 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
                 video_doc = await videos_repo.get_video(db, m.videoId)
                 if video_doc is None:
                     raise ffmpeg.FFmpegError(f"video record missing for {m.videoId}")
-                if video_doc.sourceUrl and not _is_cached(video_doc):
-                    await _set_message(db, job.id, f"Fetching source: {video_doc.title} (first use)…")
+                if video_doc.sourceUrl and cached_source_path(video_doc) is None:
+                    await _set_message(db, job.id, f"Streaming source: {video_doc.title}…")
+                    return m, video_doc.sourceUrl
                 source = await storage.ensure_local(video_doc)
                 await _fill_video_metadata(db, video_doc, source)
                 return m, source
@@ -93,7 +94,17 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
         for i, (m, source) in enumerate(prepped):
             clip_path = settings.clips_dir / f"{job.id}_{i}.mp4"
             await _set_message(db, job.id, f"Extracting clip {i + 1}/{len(matches)}…")
-            await ffmpeg.extract_clip(source, m.startTime, m.endTime, clip_path)
+            try:
+                await ffmpeg.extract_clip(source, m.startTime, m.endTime, clip_path)
+            except ffmpeg.FFmpegError:
+                if not isinstance(source, str):
+                    raise
+                video_doc = await videos_repo.get_video(db, m.videoId)
+                logger.warning("stream extract failed for %s, downloading full film", m.videoId)
+                await _set_message(db, job.id, f"Fetching source: {video_doc.title} (first use)…")
+                source = await storage.ensure_local(video_doc)
+                await _fill_video_metadata(db, video_doc, source)
+                await ffmpeg.extract_clip(source, m.startTime, m.endTime, clip_path)
             clip_paths.append(clip_path)
             clips_meta.append(
                 ClipRef(
@@ -128,12 +139,6 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
     finally:
         for p in clip_paths:
             p.unlink(missing_ok=True)
-
-
-def _is_cached(video: Video) -> bool:
-    filename = Path(video.fileUrl).name
-    p = settings.source_dir / filename
-    return p.is_file() and p.stat().st_size > 0
 
 
 async def _fill_video_metadata(db: AsyncIOMotorDatabase, video: Video, path: Path) -> None:

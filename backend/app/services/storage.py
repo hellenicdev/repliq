@@ -115,12 +115,17 @@ async def _ensure_local_file(video: Video) -> Path:
 
     timeout = httpx.Timeout(60, read=300)
     last_error: Exception | None = None
+    backoff = 1.0
     for attempt in range(4):
         try:
             existing = part.stat().st_size if part.exists() else 0
             headers = {"Range": f"bytes={existing}-"} if existing else {}
             mode = "ab" if existing else "wb"
-            async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=timeout,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; RepliqDialogue/1.0; +https://hellenicdev.eu)"},
+            ) as client:
                 async with client.stream("GET", video.sourceUrl, headers=headers) as resp:
                     if resp.status_code not in (200, 206):
                         raise StorageError(
@@ -140,6 +145,9 @@ async def _ensure_local_file(video: Video) -> Path:
             last_error = exc
             logger.warning("download attempt %d failed for %s: %s", attempt + 1, video.title, exc)
             part.unlink(missing_ok=True)
+            if attempt < 3:
+                await asyncio.sleep(backoff)
+                backoff *= 2
 
     raise StorageError(f"could not download {video.sourceUrl}: {last_error}")
 

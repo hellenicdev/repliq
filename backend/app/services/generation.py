@@ -91,20 +91,16 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
                 return m, source
 
         prepped = await asyncio.gather(*(_prepare(m) for m in matches))
+        last_error: Exception | None = None
         for i, (m, source) in enumerate(prepped):
             clip_path = settings.clips_dir / f"{job.id}_{i}.mp4"
             await _set_message(db, job.id, f"Extracting clip {i + 1}/{len(matches)}…")
             try:
-                await ffmpeg.extract_clip(source, m.startTime, m.endTime, clip_path)
-            except ffmpeg.FFmpegError:
-                if not isinstance(source, str):
-                    raise
-                video_doc = await videos_repo.get_video(db, m.videoId)
-                logger.warning("stream extract failed for %s, downloading full film", m.videoId)
-                await _set_message(db, job.id, f"Fetching source: {video_doc.title} (first use)…")
-                source = await storage.ensure_local(video_doc)
-                await _fill_video_metadata(db, video_doc, source)
-                await ffmpeg.extract_clip(source, m.startTime, m.endTime, clip_path)
+                await _extract_with_fallback(db, job, m, source, clip_path)
+            except Exception as exc:  # noqa: BLE001 - one bad film must not sink the job
+                last_error = exc
+                logger.warning("skipping clip from %s: %s", m.videoTitle, exc)
+                continue
             clip_paths.append(clip_path)
             clips_meta.append(
                 ClipRef(
@@ -117,6 +113,9 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
                     score=round(m.score, 4),
                 )
             )
+
+        if not clip_paths:
+            raise NoClipsFound(f"No clips could be fetched: {last_error or 'unknown error'}")
 
         output_path = storage.output_path(job.id)
         await _set_message(db, job.id, "Concatenating clips…")
@@ -139,6 +138,30 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
     finally:
         for p in clip_paths:
             p.unlink(missing_ok=True)
+
+
+async def _extract_with_fallback(
+    db: AsyncIOMotorDatabase, job: Job, m, source: Path | str, clip_path: Path
+) -> None:
+    """Extract a clip, retrying the stream once, then falling back to a full
+    download when the source is a URL. Raises when all paths fail."""
+    try:
+        await ffmpeg.extract_clip(source, m.startTime, m.endTime, clip_path)
+        return
+    except ffmpeg.FFmpegError:
+        if not isinstance(source, str):
+            raise
+        logger.warning("stream extract failed for %s, retrying once", m.videoId)
+        try:
+            await ffmpeg.extract_clip(source, m.startTime, m.endTime, clip_path)
+            return
+        except ffmpeg.FFmpegError:
+            pass
+        video_doc = await videos_repo.get_video(db, m.videoId)
+        await _set_message(db, job.id, f"Fetching source: {video_doc.title} (first use)…")
+        source = await storage.ensure_local(video_doc)
+        await _fill_video_metadata(db, video_doc, source)
+        await ffmpeg.extract_clip(source, m.startTime, m.endTime, clip_path)
 
 
 async def _fill_video_metadata(db: AsyncIOMotorDatabase, video: Video, path: Path) -> None:

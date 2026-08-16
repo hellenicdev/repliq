@@ -78,6 +78,9 @@ async def _run(args: list[str]) -> None:
         raise FFmpegError("ffmpeg failed:\n" + "\n".join(tail))
 
 
+_UA = "Mozilla/5.0 (compatible; RepliqDialogue/1.0; +https://hellenicdev.eu)"
+
+
 async def extract_clip(input_path: Path | str, start: float, end: float, output_path: Path) -> Path:
     """Extract [start, end) from the input video into a normalized clip.
 
@@ -95,6 +98,10 @@ async def extract_clip(input_path: Path | str, start: float, end: float, output_
         find_ffmpeg(), "-y",
         "-ss", f"{start:.3f}",
         "-t", f"{duration:.3f}",
+    ]
+    if isinstance(input_path, str):
+        args += ["-user_agent", _UA]
+    args += [
         "-i", str(input_path),
         "-vf", vf,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",

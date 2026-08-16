@@ -24,6 +24,19 @@ function formatDuration(seconds: number): string {
   return `${Math.floor(s / 60)}m ${s % 60}s`
 }
 
+function statusWord(step: number, phase: Phase, job: Job | null): string {
+  if (phase === 'done') return 'ready!'
+  if (!job) return 'waking up server'
+  switch (step) {
+    case 0: return 'connecting'
+    case 1: return 'connected!'
+    case 2: return 'starting'
+    case 3: return 'fetching'
+    case 4: return 'fetching'
+    default: return 'final touches'
+  }
+}
+
 export default function HomePage() {
   const [sentence, setSentence] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
@@ -113,9 +126,10 @@ export default function HomePage() {
               ))}
             </div>
             <p className="status">
-              {job?.message ?? 'Starting…'}
+              {statusWord(step, phase, job)}
               {eta && <span> · ETA {eta}</span>}
             </p>
+            {job?.message && <p className="status-detail">{job.message}</p>}
           </div>
         )}
 

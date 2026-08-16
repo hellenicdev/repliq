@@ -7,6 +7,7 @@ touching the rest of the application.
 """
 
 from abc import ABC, abstractmethod
+import asyncio
 import re
 from dataclasses import dataclass
 from itertools import groupby
@@ -219,8 +220,10 @@ class LexicalSearchService(SearchService):
         """
         chosen: list[ClipMatch] = []
         used_spans: dict[str, list[tuple[float, float]]] = {}
-        for phrase in phrases:
-            candidates = await self._phrase_matches(db, phrase, limit=5)
+        candidate_sets = await asyncio.gather(
+            *(self._phrase_matches(db, phrase, limit=5) for phrase in phrases)
+        )
+        for candidates in candidate_sets:
             best = None
             for c in candidates:
                 spans = used_spans.get(c.videoId, [])
@@ -234,7 +237,6 @@ class LexicalSearchService(SearchService):
             chosen.append(best)
             if len(chosen) >= limit:
                 break
-
         return chosen
 
 

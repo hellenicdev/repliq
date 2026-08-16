@@ -6,6 +6,7 @@ requires no changes here. Remote source films are downloaded lazily on
 first use (see StorageService.ensure_local).
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,16 +76,21 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
     clip_paths: list[Path] = []
     clips_meta: list[ClipRef] = []
     try:
-        for i, m in enumerate(matches):
-            video_doc = await videos_repo.get_video(db, m.videoId)
-            if video_doc is None:
-                raise ffmpeg.FFmpegError(f"video record missing for {m.videoId}")
+        semaphore = asyncio.Semaphore(3)
 
-            if video_doc.sourceUrl and not _is_cached(video_doc):
-                await _set_message(db, job.id, f"Fetching source: {video_doc.title} (first use)…")
-            source = await storage.ensure_local(video_doc)
-            await _fill_video_metadata(db, video_doc, source)
+        async def _prepare(m):
+            async with semaphore:
+                video_doc = await videos_repo.get_video(db, m.videoId)
+                if video_doc is None:
+                    raise ffmpeg.FFmpegError(f"video record missing for {m.videoId}")
+                if video_doc.sourceUrl and not _is_cached(video_doc):
+                    await _set_message(db, job.id, f"Fetching source: {video_doc.title} (first use)…")
+                source = await storage.ensure_local(video_doc)
+                await _fill_video_metadata(db, video_doc, source)
+                return m, source
 
+        prepped = await asyncio.gather(*(_prepare(m) for m in matches))
+        for i, (m, source) in enumerate(prepped):
             clip_path = settings.clips_dir / f"{job.id}_{i}.mp4"
             await _set_message(db, job.id, f"Extracting clip {i + 1}/{len(matches)}…")
             await ffmpeg.extract_clip(source, m.startTime, m.endTime, clip_path)

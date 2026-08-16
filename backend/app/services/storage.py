@@ -11,6 +11,7 @@ films are also mirrored to object storage once, so later instances /
 redeploys re-download them from there instead of archive.org.
 """
 
+import asyncio
 import logging
 import re
 from abc import ABC, abstractmethod
@@ -26,6 +27,19 @@ from . import s3 as s3_store
 logger = logging.getLogger(__name__)
 
 _FILENAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _mirror_later(remote_key: str, path: Path) -> None:
+    """Upload a cached film to object storage in the background so generation
+    never waits on the mirror (a 500 MB upload can take minutes)."""
+    async def _upload() -> None:
+        try:
+            await s3_store.upload_file(remote_key, path)
+            logger.info("mirrored %s to object storage", remote_key)
+        except Exception as exc:  # noqa: BLE001 - cache is best-effort
+            logger.warning("s3 mirror failed for %s: %s", remote_key, exc)
+
+    asyncio.get_running_loop().create_task(_upload())
 
 
 class StorageError(Exception):
@@ -110,11 +124,7 @@ async def _ensure_local_file(video: Video) -> Path:
                             fh.write(chunk)
             part.rename(target)
             if s3_store.available():
-                try:
-                    await s3_store.upload_file(remote_key, target)
-                    logger.info("mirrored %s to object storage", remote_key)
-                except Exception as exc:  # noqa: BLE001 - cache is best-effort
-                    logger.warning("s3 mirror failed for %s: %s", remote_key, exc)
+                _mirror_later(remote_key, target)
             return target
         except Exception as exc:  # noqa: BLE001 - retry with a fresh mirror connection
             last_error = exc

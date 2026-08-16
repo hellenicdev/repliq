@@ -1,9 +1,11 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .database import close_db, connect_db, create_indexes
@@ -13,6 +15,8 @@ from .services import storage
 logging.basicConfig(level=logging.INFO)
 
 PRUNE_INTERVAL_SECONDS = 6 * 3600
+
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 async def _cache_prune_loop() -> None:
@@ -57,6 +61,9 @@ app.include_router(videos.router)
 app.include_router(jobs.router)
 
 
-@app.get("/")
-async def root():
-    return {"service": "Dialogue Video Generator", "docs": "/docs", "health": "/api/health"}
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+else:
+    @app.get("/")
+    async def root():
+        return {"service": "Dialogue Video Generator", "docs": "/docs", "health": "/api/health"}

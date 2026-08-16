@@ -97,6 +97,7 @@ async def extract_clip(input_path: Path | str, start: float, end: float, output_
     args = [
         find_ffmpeg(), "-y",
         "-ss", f"{start:.3f}",
+        "-accurate_seek",
         "-t", f"{duration:.3f}",
     ]
     if isinstance(input_path, str):

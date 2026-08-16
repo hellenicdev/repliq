@@ -96,7 +96,7 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
             clip_path = settings.clips_dir / f"{job.id}_{i}.mp4"
             await _set_message(db, job.id, f"Extracting clip {i + 1}/{len(matches)}…")
             try:
-                await _extract_with_fallback(db, job, m, source, clip_path)
+                await _extract_with_fallback(db, job, m, source, clip_path, storage)
             except Exception as exc:  # noqa: BLE001 - one bad film must not sink the job
                 last_error = exc
                 logger.warning("skipping clip from %s: %s", m.videoTitle, exc)
@@ -141,7 +141,7 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
 
 
 async def _extract_with_fallback(
-    db: AsyncIOMotorDatabase, job: Job, m, source: Path | str, clip_path: Path
+    db: AsyncIOMotorDatabase, job: Job, m, source: Path | str, clip_path: Path, storage
 ) -> None:
     """Extract a clip, retrying the stream once, then falling back to a full
     download when the source is a URL. Raises when all paths fail."""

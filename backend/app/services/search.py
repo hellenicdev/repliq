@@ -59,6 +59,7 @@ class LexicalSearchService(SearchService):
 
     PHRASE_BONUS = 0.35
     MIN_CLIP_SECONDS = 0.5
+    MIN_SCORE = 0.6
 
     @staticmethod
     def _word_span(seg_tokens: list[str], query_tokens: list[str]) -> tuple[int, int] | None:
@@ -124,6 +125,8 @@ class LexicalSearchService(SearchService):
             score = 1.0 - 0.02 * extra_words
             if query_tokens == seg_tokens:
                 score += self.PHRASE_BONUS
+            if score < self.MIN_SCORE:
+                continue
 
             video = videos.get(seg.videoId)
             matches.append(

@@ -18,6 +18,21 @@ function stepIndex(message: string | null, phase: Phase): number {
   return 0
 }
 
+function progressFraction(message: string | null, phase: Phase): number {
+  if (phase === 'done') return 1
+  if (phase === 'failed') return 0
+  if (!message) return 0.02
+  const extract = message.match(/Extracting clip (\d+)\/(\d+)/)
+  if (extract) {
+    const [cur, total] = [parseInt(extract[1], 10), parseInt(extract[2], 10)]
+    return Math.min(0.99, 0.5 + 0.45 * (cur / total))
+  }
+  const idx = stepIndex(message, phase)
+  if (idx === 0) return 0.02
+  if (idx >= STEPS.length) return 1
+  return (idx - 1 + 0.5) / STEPS.length
+}
+
 function formatDuration(seconds: number): string {
   const s = Math.max(0, Math.ceil(seconds))
   if (s < 60) return `${s}s`
@@ -81,11 +96,11 @@ export default function HomePage() {
   }
 
   const step = stepIndex(job?.message ?? null, phase)
+  const frac = progressFraction(job?.message ?? null, phase)
 
   const elapsed = startedAt ? (now - startedAt) / 1000 : 0
-  const frac = step / STEPS.length
-  const eta = phase === 'searching' && frac > 0 && elapsed > 0
-    ? formatDuration(elapsed / frac - elapsed)
+  const eta = phase === 'searching' && frac > 0.02 && elapsed > 0
+    ? formatDuration(elapsed / Math.min(frac, 0.99) - elapsed)
     : null
 
   return (
@@ -124,6 +139,9 @@ export default function HomePage() {
                   <span className="label">{label}</span>
                 </div>
               ))}
+            </div>
+            <div className="progress">
+              <div className="progress-fill" style={{ width: `${Math.round(frac * 100)}%` }} />
             </div>
             <p className="status">
               {statusWord(step, phase, job)}

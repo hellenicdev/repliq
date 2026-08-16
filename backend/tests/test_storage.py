@@ -1,4 +1,5 @@
 from app.config import settings
+from app.services import s3 as s3_store
 from app.services.storage import LocalStorageService, S3StorageService, get_storage_service
 
 
@@ -29,5 +30,5 @@ def test_storage_backend_selection(monkeypatch):
 def test_s3_output_url_falls_back_to_api_path(monkeypatch):
     svc = S3StorageService()
     monkeypatch.setattr(settings, "storage_backend", "s3")
-    url = svc.output_url("abc123")
-    assert isinstance(url, str) and url  # presigned or API fallback path
+    monkeypatch.setattr(s3_store, "presigned_get_url", lambda *args, **kwargs: None)
+    assert svc.output_url("abc123") == "/api/jobs/abc123/output"

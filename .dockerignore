@@ -1,9 +1,0 @@
-.git
-backend/.venv
-backend/media
-backend/.env
-frontend/node_modules
-frontend/dist
-frontend/tsconfig.tsbuildinfo
-**/__pycache__
-*.log

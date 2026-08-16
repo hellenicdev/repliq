@@ -1,0 +1,7 @@
+.venv
+media
+.env
+__pycache__
+*.pyc
+*.log
+*.checkpoint.json

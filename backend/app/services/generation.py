@@ -16,6 +16,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from ..config import settings
 from ..models.job import ClipRef, Job, JobStatus
 from ..models.video import Video
+from ..repositories import dialogue as dialogue_repo
 from ..repositories import jobs as jobs_repo
 from ..repositories import videos as videos_repo
 from . import video as ffmpeg
@@ -25,6 +26,25 @@ from .segmentation import segment_sentence
 from .storage import cached_source_path, get_storage_service
 
 logger = logging.getLogger(__name__)
+
+ALIGN_TOLERANCE = 0.15
+
+
+def compute_align_ratio(video_duration: float, srt_span: float) -> float | None:
+    """Ratio converting SRT timestamps to real video time.
+
+    Subtitle files for these films are frequently timed for a different
+    master (e.g. 25 fps PAL subs on a 23.976 fps film), which drifts by
+    ~4% — minutes of error by the end of a feature. A constant ratio fixes
+    that. Returns None when the SRT is too far from the video's length to
+    be the same cut (in which case its timestamps cannot be trusted at all).
+    """
+    if not video_duration or video_duration <= 0 or not srt_span or srt_span <= 0:
+        return None
+    ratio = video_duration / srt_span
+    if abs(ratio - 1.0) > ALIGN_TOLERANCE:
+        return None
+    return ratio
 
 
 async def process_job(db: AsyncIOMotorDatabase, job_id: str) -> Job:
@@ -83,6 +103,8 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
                 video_doc = await videos_repo.get_video(db, m.videoId)
                 if video_doc is None:
                     raise ffmpeg.FFmpegError(f"video record missing for {m.videoId}")
+                if not await _align_match(db, video_doc, m):
+                    return None
                 if video_doc.sourceUrl and cached_source_path(video_doc) is None:
                     await _set_message(db, job.id, f"Streaming source: {video_doc.title}…")
                     return m, video_doc.sourceUrl
@@ -90,7 +112,9 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
                 await _fill_video_metadata(db, video_doc, source)
                 return m, source
 
-        prepped = await asyncio.gather(*(_prepare(m) for m in matches))
+        prepped = [
+            r for r in await asyncio.gather(*(_prepare(m) for m in matches)) if r is not None
+        ]
         last_error: Exception | None = None
         for i, (m, source) in enumerate(prepped):
             clip_path = settings.clips_dir / f"{job.id}_{i}.mp4"
@@ -138,6 +162,44 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
     finally:
         for p in clip_paths:
             p.unlink(missing_ok=True)
+
+
+async def _align_match(db: AsyncIOMotorDatabase, video: Video, m) -> bool:
+    """Scale the match's times from SRT time to the video's real timeline
+    (frame-rate drift correction). Returns False when the SRT is for a
+    different cut of the film — its timestamps would cut the wrong words,
+    so the clip is dropped instead of played wrong."""
+    duration = video.duration
+    if not duration:
+        try:
+            source = cached_source_path(video) or video.sourceUrl
+            if not source:
+                return True
+            meta = await ffmpeg.probe_metadata(source)
+            duration = meta.get("duration")
+            if duration:
+                await videos_repo.update_video(db, video.id, duration=duration)
+        except Exception as exc:  # noqa: BLE001 - probing is best-effort
+            logger.warning("probe failed for %s: %s", video.title, exc)
+            return True
+    if not duration:
+        return True
+
+    srt_span = await dialogue_repo.max_end_time(db, video.id)
+    ratio = compute_align_ratio(duration, srt_span) if srt_span else None
+    if srt_span and ratio is None:
+        logger.warning(
+            "skipping %s: SRT length %.0fs does not match video %.0fs",
+            video.title,
+            srt_span,
+            duration,
+        )
+        return False
+    if ratio and abs(ratio - 1.0) > 0.005:
+        m.startTime = round(m.startTime * ratio, 3)
+        m.endTime = round(m.endTime * ratio, 3)
+        logger.info("aligned %s clip times by x%.4f", video.title, ratio)
+    return True
 
 
 async def _extract_with_fallback(

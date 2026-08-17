@@ -19,3 +19,15 @@ async def list_dialogue(db: AsyncIOMotorDatabase, match: dict[str, Any] | None =
     """
     cursor = db.dialogue.find(match or {}).sort("startTime", 1)
     return [_to_model(doc) async for doc in cursor]
+
+
+async def max_end_time(db: AsyncIOMotorDatabase, video_id: str) -> float | None:
+    """Last subtitle end time for a video, used to detect SRT drift."""
+    cursor = db.dialogue.aggregate(
+        [
+            {"$match": {"videoId": video_id}},
+            {"$group": {"_id": None, "maxEnd": {"$max": "$endTime"}}},
+        ]
+    )
+    docs = await cursor.to_list(1)
+    return docs[0]["maxEnd"] if docs else None

@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     # Generation limits
     max_clips: int = 12
     max_total_duration: float = 30.0
+    job_retries: int = 3
+    job_retry_delay: float = 30.0
     output_width: int = 640
     output_height: int = 360
     output_fps: int = 24

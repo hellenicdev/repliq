@@ -101,7 +101,7 @@ async def extract_clip(input_path: Path | str, start: float, end: float, output_
         "-t", f"{duration:.3f}",
     ]
     if isinstance(input_path, str):
-        args += ["-user_agent", _UA]
+        args += ["-user_agent", _UA, "-reconnect", "1", "-reconnect_delay_max", "5"]
     args += [
         "-i", str(input_path),
         "-vf", vf,

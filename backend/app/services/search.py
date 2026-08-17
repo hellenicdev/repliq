@@ -224,16 +224,20 @@ class LexicalSearchService(SearchService):
         chosen: list[ClipMatch] = []
         used_spans: dict[str, list[tuple[float, float]]] = {}
         candidate_sets = await asyncio.gather(
-            *(self._phrase_matches(db, phrase, limit=5) for phrase in phrases)
+            *(self._phrase_matches(db, phrase, limit=15) for phrase in phrases)
         )
+
+        def _usable(c: ClipMatch) -> bool:
+            return not any(
+                c.startTime < end and c.endTime > start for start, end in used_spans.get(c.videoId, [])
+            )
+
         for candidates in candidate_sets:
-            best = None
-            for c in candidates:
-                spans = used_spans.get(c.videoId, [])
-                if any(c.startTime < end and c.endTime > start for start, end in spans):
-                    continue
-                best = c
-                break
+            usable = [c for c in candidates if _usable(c)]
+            best = next(
+                (c for c in usable if c.videoId not in used_spans),
+                usable[0] if usable else None,
+            )
             if best is None:
                 continue
             used_spans.setdefault(best.videoId, []).append((best.startTime, best.endTime))

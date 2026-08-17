@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 ALIGN_TOLERANCE = 0.15
 
 
+class SourceUnavailableError(Exception):
+    """Raised when no clip could be fetched from the source films
+    (network failure, archive.org rate limiting). Transient, so process_job
+    retries before giving up."""
+
+
 def compute_align_ratio(video_duration: float, srt_span: float) -> float | None:
     """Ratio converting SRT timestamps to real video time.
 
@@ -48,25 +54,40 @@ def compute_align_ratio(video_duration: float, srt_span: float) -> float | None:
 
 
 async def process_job(db: AsyncIOMotorDatabase, job_id: str) -> Job:
-    """Execute a pending job, updating its document as work progresses."""
+    """Execute a pending job, updating its document as work progresses.
+
+    Transient source failures (archive.org rate limiting, dropped streams)
+    are retried with a short backoff so a hiccup never fails a job
+    permanently.
+    """
     job = await jobs_repo.get_job(db, job_id)
     if job is None:
         raise ValueError(f"job not found: {job_id}")
 
-    try:
-        await _run_generation(db, job)
-        await jobs_repo.update_job(
-            db,
-            job_id,
-            status=JobStatus.COMPLETED.value,
-            message=None,
-            completedAt=datetime.now(timezone.utc),
-        )
-    except NoClipsFound as exc:
-        await jobs_repo.update_job(db, job_id, status=JobStatus.FAILED.value, error=str(exc))
-    except Exception as exc:  # noqa: BLE001 - record anything so the client sees a clear error
-        logger.exception("generation failed for job %s", job_id)
-        await jobs_repo.update_job(db, job_id, status=JobStatus.FAILED.value, error=str(exc))
+    for attempt in range(1, settings.job_retries + 1):
+        try:
+            await _run_generation(db, job)
+            await jobs_repo.update_job(
+                db,
+                job_id,
+                status=JobStatus.COMPLETED.value,
+                message=None,
+                completedAt=datetime.now(timezone.utc),
+            )
+            return await jobs_repo.get_job(db, job_id)
+        except SourceUnavailableError as exc:
+            if attempt >= settings.job_retries:
+                await jobs_repo.update_job(db, job_id, status=JobStatus.FAILED.value, error=str(exc))
+                break
+            await _set_message(db, job_id, f"Sources busy, retrying ({attempt}/{settings.job_retries - 1})…")
+            await asyncio.sleep(settings.job_retry_delay * attempt)
+        except NoClipsFound as exc:
+            await jobs_repo.update_job(db, job_id, status=JobStatus.FAILED.value, error=str(exc))
+            break
+        except Exception as exc:  # noqa: BLE001 - record anything so the client sees a clear error
+            logger.exception("generation failed for job %s", job_id)
+            await jobs_repo.update_job(db, job_id, status=JobStatus.FAILED.value, error=str(exc))
+            break
     return await jobs_repo.get_job(db, job_id)
 
 
@@ -139,7 +160,10 @@ async def _run_generation(db: AsyncIOMotorDatabase, job: Job) -> None:
             )
 
         if not clip_paths:
-            raise NoClipsFound(f"No clips could be fetched: {last_error or 'unknown error'}")
+            raise SourceUnavailableError(
+                "No clips could be fetched (the source films are temporarily "
+                f"unavailable): {last_error or 'unknown error'}"
+            )
 
         output_path = storage.output_path(job.id)
         await _set_message(db, job.id, "Concatenating clips…")

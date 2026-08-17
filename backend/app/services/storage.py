@@ -115,8 +115,8 @@ async def _ensure_local_file(video: Video) -> Path:
 
     timeout = httpx.Timeout(60, read=300)
     last_error: Exception | None = None
-    backoff = 1.0
-    for attempt in range(4):
+    backoff = 3.0
+    for attempt in range(5):
         try:
             existing = part.stat().st_size if part.exists() else 0
             headers = {"Range": f"bytes={existing}-"} if existing else {}
@@ -145,7 +145,7 @@ async def _ensure_local_file(video: Video) -> Path:
             last_error = exc
             logger.warning("download attempt %d failed for %s: %s", attempt + 1, video.title, exc)
             part.unlink(missing_ok=True)
-            if attempt < 3:
+            if attempt < 4:
                 await asyncio.sleep(backoff)
                 backoff *= 2
 
